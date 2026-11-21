@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Puzzle di aree e frazioni</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #eee; color: #161616; font: 16px Georgia, serif; }
+.controls { max-width: 190mm; margin: 20px auto; padding: 16px; background: white; border: 1px solid #bbb; }
+.controls h1 { margin: 0 0 10px; font-size: 24px; }
+form { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+label { display: grid; gap: 4px; }
+select, input, button { font: 15px system-ui, sans-serif; padding: 6px; }
+button { cursor: pointer; }
+.sheet { width: min(190mm, 100%); margin: 16px auto; padding: 8mm; background: white; }
+.sheet h2 { margin: 0 0 3mm; text-align: center; font-size: 22px; }
+.sheet p { margin: 0 0 5mm; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5mm; }
+figure { margin: 0; min-width: 0; break-inside: avoid; text-align: center; }
+figcaption { margin: 0 0 2mm; }
+svg { display: block; width: min(100%, 65mm); height: auto; margin: auto; }
+polygon { fill: none; stroke: black; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+polygon.clue { fill: #ffe59a; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+svg text { fill: black; text-anchor: middle; dominant-baseline: central; font-weight: bold; }
+[hidden] { display: none !important; }
+@page { size: A4 portrait; margin: 12mm; }
+@media print {
+  body { background: white; }
+  .controls { display: none; }
+  .sheet { width: 100%; padding: 0; margin: 0; break-after: page; }
+  .grid { gap: 4mm 5mm; }
+  figure svg { width: min(100%, 54mm); }
+  #solutions:not([hidden]) .sheet:last-child, #exercises:last-child .sheet:last-child { break-after: auto; }
+  body:has(#solutions[hidden]) #exercises .sheet:last-child { break-after: auto; }
+}
+</style>
+</head>
+<body>
+<section class="controls">
+<h1>Generatore di puzzle di aree e frazioni</h1>
+<form id="settings">
+  <label>Modello
+    <select id="level">
+      <option value="base">Base · rettangoli</option>
+      <option value="sfida">Sfida · rettangoli e triangoli</option>
+      <option value="misto" selected>Misto</option>
+    </select>
+  </label>
+  <label>Contorno
+    <select id="outline">
+      <option value="mixed" selected>Quadrati e rettangoli</option>
+      <option value="square">Solo quadrati</option>
+      <option value="rectangle">Solo rettangoli</option>
+    </select>
+  </label>
+  <label>Quanti puzzle?
+    <input id="count" type="number" min="1" max="40" value="6" required>
+  </label>
+  <button type="submit">Genera</button>
+  <button type="button" id="print">Stampa / Salva in PDF</button>
+</form>
+<p><label style="display:inline-block"><input type="checkbox" id="colored" checked> Colora il pezzo</label></p>
+<p><label style="display:inline-block"><input type="checkbox" id="divisions" checked> Mostra le suddivisioni interne</label></p>
+<p><label style="display:inline-block"><input type="checkbox" id="without-numbers"> Senza numeri · riconosci la frazione del pezzo</label></p>
+<p id="answers-control"><label style="display:inline-block"><input type="checkbox" id="answers"> Mostra e stampa le soluzioni</label></p>
+</section>
+<main>
+<div id="exercises"></div>
+<div id="solutions" hidden></div>
+</main>
+<script>
+"use strict";
+
+// I modelli usano coordinate normalizzate su un quadrato di lato 8.
+const rectangle = (x, y, w, h) => [[x,y], [x+w,y], [x+w,y+h], [x,y+h]];
+const quarters = (x, y, side) => {
+  const half = side / 2;
+  return [[x,y], [x+half,y], [x,y+half], [x+half,y+half]]
+    .map(([left,top]) => rectangle(left, top, half, half));
+};
+
+const base = [
+  [rectangle(0,0,4,8), rectangle(4,4,4,4), rectangle(4,0,2,4),
+   rectangle(6,0,2,2), rectangle(6,2,2,2)],
+  [rectangle(0,0,4,8), ...quarters(4,0,4), rectangle(4,4,4,4)],
+  [...quarters(0,0,8).slice(0,3), ...quarters(4,4,4)]
+];
+const challenge = [
+  [[[0,0],[4,0],[0,8]], [[4,0],[4,8],[0,8]], [[4,0],[8,0],[4,8]],
+   [[8,0],[8,8],[6,4]], [[6,4],[8,8],[6,8]], [[6,4],[6,8],[4,8]]],
+  [[[0,0],[0,8],[4,4]], [[0,0],[4,0],[4,4]], [[0,8],[4,8],[4,4]],
+   [[4,4],[4,8],[8,8]], [[4,4],[8,0],[8,8]], [[4,4],[4,0],[6,2]],
+   [[4,0],[8,0],[6,2]]],
+  [rectangle(0,0,4,4), rectangle(0,4,4,4), ...quarters(4,4,4),
+   [[4,0],[8,0],[8,4]], [[4,0],[8,4],[4,4]]],
+  [rectangle(4,0,4,4), rectangle(0,4,4,4),
+   [[0,0],[4,0],[4,4]], [[0,0],[4,4],[0,4]],
+   ...quarters(4,4,4).slice(0,3), ...quarters(6,6,2)],
+  [rectangle(0,0,4,8), [[4,0],[8,0],[4,4]], [[8,0],[8,4],[4,4]],
+   rectangle(4,4,2,4), rectangle(6,4,2,2), rectangle(6,6,2,2)],
+  [[[0,0],[4,0],[0,4]], [[4,0],[4,4],[0,4]],
+   [[4,0],[8,0],[8,4]], [[4,0],[8,4],[4,4]],
+   [[0,4],[4,4],[4,8]], [[0,4],[4,8],[0,8]],
+   [[4,4],[8,4],[4,8]], [[8,4],[8,8],[6,6]], [[4,8],[6,6],[8,8]]]
+];
+
+// Una griglia di 12 unità permette di costruire terzi e quarti nello stesso modello.
+const onTwelve = regions => regions.map(points => points.map(([x,y]) => [x*2/3,y*2/3]));
+
+base.push(
+  onTwelve([rectangle(0,0,4,12), rectangle(4,0,8,6), rectangle(4,6,4,6),
+    rectangle(8,6,4,3), rectangle(8,9,4,3)]),
+  onTwelve([rectangle(0,0,12,3), rectangle(0,3,8,9), rectangle(8,3,4,3),
+    rectangle(8,6,4,6)])
+);
+
+challenge.push(
+  [rectangle(0,0,4,8), [[4,0],[8,0],[8,8]],
+    [[4,0],[8,8],[4,4]], [[4,4],[8,8],[4,8]]],
+  onTwelve([[[0,0],[8,0],[4,6],[0,6]], [[8,0],[12,0],[12,6],[4,6]],
+    [[0,6],[4,6],[8,12],[0,12]], [[4,6],[12,6],[12,12],[8,12]]]),
+  [rectangle(0,4,8,4), [[0,0],[8,0],[4,4],[0,4]],
+    [[8,0],[8,4],[4,4]]]
+);
+
+function polygonArea(points) {
+  let twiceArea = 0;
+  points.forEach(([x, y], index) => {
+    const [nextX, nextY] = points[(index + 1) % points.length];
+    twiceArea += x * nextY - y * nextX;
+  });
+  return Math.abs(twiceArea) / 2;
+}
+
+function transform(points, turns, reflect) {
+  return points.map(([x, y]) => {
+    if (reflect) x = 8 - x;
+    for (let turn = 0; turn < turns; turn++) [x, y] = [8 - y, x];
+    return [x, y];
+  });
+}
+
+function shuffle(items) {
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index--) {
+    const other = Math.floor(Math.random() * (index + 1));
+    [result[index], result[other]] = [result[other], result[index]];
+  }
+  return result;
+}
+
+const perPage = 8;
+
+function makePuzzles(level, count, outline) {
+  const firstRectangle = Math.random() < 0.5;
+  const models = level === "base" ? base : level === "sfida" ? challenge : [...base, ...challenge];
+  // La stessa combinazione di modello, area totale e indizio compare una volta per scheda.
+  const choices = models.flatMap(model => {
+    const totals = [32,48,64,72,80,96,112,120,128,144,160,192,240,256,320,384];
+    return totals.flatMap(total => model.flatMap((points, clue) => {
+      const given = polygonArea(points) * total / 64;
+      const integerAreas = model.every(region => Math.abs(polygonArea(region) * total / 64 - Math.round(polygonArea(region) * total / 64)) < 1e-8);
+      return integerAreas && given <= 64 ? [{model, total, clue}] : [];
+    }));
+  });
+  const pools = models.map(model => shuffle(choices.filter(choice => choice.model === model)));
+  const puzzles = [];
+  const usedOnPage = new Set();
+  while (puzzles.length < count) {
+    if (puzzles.length % perPage === 0) usedOnPage.clear();
+    const available = pools.filter(pool => pool.length);
+    const fresh = available.filter(pool => !usedOnPage.has(pool));
+    const pool = shuffle(fresh.length ? fresh : available)[0];
+    usedOnPage.add(pool);
+    const {model, total, clue} = pool.pop();
+    const turns = Math.floor(Math.random() * 4);
+    const reflect = Math.random() < 0.5;
+    const isRectangle = outline === "rectangle" ||
+      (outline === "mixed" && (puzzles.length % 2 === 0) === firstRectangle);
+    // Ridurre l'altezza in modo uniforme conserva tutti i rapporti tra le aree.
+    const heightScale = isRectangle ? 0.7 : 1;
+    const regions = model.map(points => ({
+      points: transform(points, turns, reflect).map(([x, y]) => [x, y * heightScale]),
+      value: Math.round(polygonArea(points) * total / 64)
+    }));
+    puzzles.push({regions, clue, height: 80 * heightScale});
+  }
+  return puzzles;
+}
+
+function diagram(puzzle, solved, withoutNumbers = false, colored = true, divisions = true) {
+  const showDivisions = divisions || solved;
+  const polygons = puzzle.regions.map(({points}, index) => {
+    if (!showDivisions && index !== puzzle.clue) return "";
+    return '<polygon class="' + (colored && index === puzzle.clue ? "clue" : "") +
+      '" points="' + points.map(([x,y]) => [x*10,y*10].join(",")).join(" ") + '"/>';
+  });
+  const outline = showDivisions ? "" : '<polygon points="0,0 80,0 80,' +
+    puzzle.height + ' 0,' + puzzle.height + '"/>';
+  const labels = puzzle.regions.map(({points, value}, index) => {
+    if (withoutNumbers || (!solved && index !== puzzle.clue)) return "";
+    const center = axis => points.reduce((sum, point) => sum + point[axis], 0) * 10 / points.length;
+    const size = polygonArea(points) <= 2 ? 4.6 : 6.3;
+    return '<text x="' + center(0) + '" y="' + center(1) + '" font-size="' + size + '">' + value + '</text>';
+  });
+  return '<svg viewBox="-1 -1 82 ' + (puzzle.height + 2) +
+    '" role="img" aria-label="' +
+    (withoutNumbers ? 'Figura con un solo pezzo evidenziato' :
+      'Figura suddivisa in regioni, area data ' + puzzle.regions[puzzle.clue].value) + '">' + polygons.join("") + outline + labels.join("") + '</svg>';
+}
+
+function clueFraction(puzzle) {
+  const numerator = puzzle.regions[puzzle.clue].value;
+  const denominator = puzzle.regions.reduce((sum, region) => sum + region.value, 0);
+  let divisor = numerator;
+  let remainder = denominator % divisor;
+  while (remainder) {
+    [divisor, remainder] = [remainder, divisor % remainder];
+  }
+  return (numerator / divisor) + "/" + (denominator / divisor);
+}
+
+function render(puzzles, solved, withoutNumbers = false, colored = true, divisions = true) {
+  const pages = [];
+  for (let start = 0; start < puzzles.length; start += perPage) {
+    const figures = puzzles.slice(start, start + perPage).map((puzzle, index) =>
+      '<figure><figcaption>Puzzle ' + (start + index + 1) +
+      (solved && withoutNumbers ? ' · Frazione: ' + clueFraction(puzzle) : '') + '</figcaption>' +
+      diagram(puzzle, solved, withoutNumbers, colored, divisions) + '</figure>');
+    const heading = solved ? "Soluzioni" : "Puzzle di aree e frazioni";
+    const instructions = solved ? "" : withoutNumbers ?
+      "<p>Quale frazione dell’intera figura rappresenta il pezzo evidenziato? Spiega come hai ragionato.</p>" :
+      (!divisions ? "<p>Il numero indica l’area del pezzo evidenziato. Qual è l’area dell’intera figura? Spiega come hai ragionato.</p>" :
+      "<p>Il numero indica l’area della regione in cui si trova. Usa le proporzioni del disegno per trovare l’area di ogni altra regione.</p>");
+    pages.push('<section class="sheet"><h2>' + heading + '</h2>' + instructions +
+      '<div class="grid">' + figures.join("") + '</div></section>');
+  }
+  return pages.join("");
+}
+
+let currentPuzzles = [];
+
+function generate() {
+  if (!document.querySelector("#settings").reportValidity()) return;
+  currentPuzzles = makePuzzles(
+    document.querySelector("#level").value,
+    document.querySelector("#count").valueAsNumber,
+    document.querySelector("#outline").value
+  );
+  updateView();
+}
+
+function updateView() {
+  const withoutNumbers = document.querySelector("#without-numbers").checked;
+  const colored = document.querySelector("#colored").checked;
+  const divisions = document.querySelector("#divisions").checked;
+  document.querySelector("#exercises").innerHTML = render(currentPuzzles, false, withoutNumbers, colored, divisions);
+  document.querySelector("#solutions").innerHTML = render(currentPuzzles, true, withoutNumbers, colored, divisions);
+  document.querySelector("#solutions").hidden = !document.querySelector("#answers").checked;
+}
+
+document.querySelector("#settings").addEventListener("submit", event => {
+  event.preventDefault();
+  generate();
+});
+for (const selector of ["#level", "#outline", "#count", "#colored", "#divisions", "#without-numbers"]) {
+  document.querySelector(selector).addEventListener("change", generate);
+}
+document.querySelector("#answers").addEventListener("change", event => {
+  document.querySelector("#solutions").hidden = !event.target.checked;
+});
+document.querySelector("#print").addEventListener("click", () => window.print());
+generate();
+</script>
+</body>
+</html>
